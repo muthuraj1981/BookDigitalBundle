@@ -1,0 +1,31 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.4.33213.308
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{F184B08F-C81C-45F6-A57F-5ABD9991F28F}") = "Server_DigitalBundle", "Server_DigitalBundle.vbproj", "{F6C6DC1A-F999-485B-9367-5367F8858850}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		FinalXML|Any CPU = FinalXML|Any CPU
+		Release|Any CPU = Release|Any CPU
+		TEST|Any CPU = TEST|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.FinalXML|Any CPU.ActiveCfg = FinalXML|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.FinalXML|Any CPU.Build.0 = FinalXML|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.TEST|Any CPU.ActiveCfg = TEST|Any CPU
+		{F6C6DC1A-F999-485B-9367-5367F8858850}.TEST|Any CPU.Build.0 = TEST|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {878C63BB-5DBD-4C5A-8090-F6F584D5EECE}
+	EndGlobalSection
+EndGlobal

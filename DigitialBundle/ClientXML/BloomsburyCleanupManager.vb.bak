@@ -1,0 +1,1213 @@
+﻿Imports System.IO
+Imports System.Text.RegularExpressions
+Imports System.Threading
+Imports System.Xml
+
+Public Class BloomsburyCleanupManager
+    Private XMLString As String = String.Empty
+    Dim xmlDoc As New XmlDocument
+    Private iChap As Integer = 0, iHead As Integer = 0
+    Public sISBN As String = String.Empty
+    Public Property ProjectID As String = String.Empty
+    Public Property FileSequence As New List(Of String)
+    Public Property sXMLFileName As String = String.Empty
+    Public Const sMsgTitle = "XML Cleanup"
+    Private sXMLFilePath As String = String.Empty
+    Private bExecuteOnce As Boolean = False
+    Private iDedication As Integer = 0
+    Public bNoError As Boolean = False
+    Public Property AppPath As String
+    Public Function MainXMLPro(sXMLPath As String, Optional bxslExecution As Boolean = False, Optional Project_ID As String = "") As Boolean
+        'Try
+        Dim di As DirectoryInfo = New DirectoryInfo(sXMLPath.ToString)
+        Dim aryFi() As FileInfo = di.GetFiles("*.xml")
+        sXMLFilePath = sXMLPath
+
+        'If String.IsNullOrEmpty(sXMLFileName) Then Return Nothing
+        If Not sXMLFileName.ToString.ToLower.EndsWith(".xml") Then sXMLFileName = sXMLFileName & ".xml"
+        Dim sBookInfo As String = "<book xmlns=""http://docbook.org/ns/docbook"" version=""5.0"" xml:id=""b-" & sISBN.ToString & """ xmlns:xlink=""http://www.w3.org/1999/xlink"" xml:lang=""en"" role=""fullText"">"
+        Dim sXMLTxt As String = String.Empty
+        If Not File.Exists(Path.Combine(sXMLFilePath, sXMLFileName.ToString)) Then
+            ' Merging takes place here...
+            'sBookInfo = "<book xmlns=""http://docbook.org/ns/docbook"" version=""5.0"" xml:id=""b-" & sISBN.ToString & """ xmlns:xlink=""http://www.w3.org/1999/xlink"" xml:lang=""en"" role=""fullText"">"
+            Using XMLWrite As StreamWriter = File.CreateText(sXMLFilePath & "\" & sXMLFileName)
+                XMLWrite.WriteLine("<?xml version=""1.0"" encoding=""utf-8""?>")
+                XMLWrite.WriteLine("<?oxygen SCHSchema=""../../../docbook-mods.sch""?>")
+                XMLWrite.WriteLine("<?oxygen RNGSchema=""../../../bloomsbury-mods.rnc"" type=""compact""?>")
+                XMLWrite.WriteLine(sBookInfo.ToString)
+            End Using
+            Dim iChFnCnt As Integer = 0
+            sXMLTxt = String.Empty
+            iSec = 0 : iVal = 0
+            Dim iChap As Integer = 0
+            Using XMLWrite As StreamWriter = File.AppendText(Path.Combine(sXMLFilePath, sXMLFileName))
+                For i = 0 To FileSequence.Count - 1
+                    Try
+                        iChap = +1
+#If CONFIG = "FinalXML" Then
+                        XMLString = File.ReadAllText(FileSequence(i))
+#Else
+                        XMLString = File.ReadAllText(sXMLFilePath & "\" & FileSequence(i))
+#End If
+
+                        XMLString = XMLString.Replace("<emphasis role=""entity"">&amp;</emphasis>", "&amp;")
+                        XMLString = Regex.Replace(XMLString, "<chapter[^><]*>", AddressOf ChapterNameSpace, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        XMLString = Regex.Replace(XMLString, "(<LRH[^><]*>)(((?!</LRH>).)+)(</LRH>)", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        XMLString = Regex.Replace(XMLString, "(<RRH[^><]*>)(((?!</RRH>).)+)(</RRH>)", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        XMLString = Regex.Replace(XMLString, " role=""""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        XMLString = XMLString.Replace("<chapter></chapter>", "")
+                        XMLString = XMLString.Replace("&#x200B;", "")
+                        XMLString = Regex.Replace(XMLString, "<section[^>]*><title[^>]*>Note</title></section>", "", RegexOptions.Singleline Or RegexOptions.IgnoreCase)
+                        XMLString = XMLString.Replace("<token>", "").Replace("</token>", "")
+                        'Dim Fig As String = Regex.Match(XMLString, "<bibliomixed[^>]*>((?:(?!<bibliomixed[^>]*>).)*)<\/bibliomixed>", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Value
+                        'Fig = AdvanceXMLManager.RearrageAttribute(Fig, "role")
+
+                        If Regex.IsMatch(XMLString, "<chapter([^><]+)?>((?:(?:(?!</info>).)+)</author></info>)", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+                            XMLString = Regex.Replace(XMLString, "(<chapter([^><]+)?>)((?:(?:(?!</info>).)+)</info>)", AddressOf ChapterProHC, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        ElseIf Regex.IsMatch(XMLString, "(<part([^><]+)?>)((?:(?:(?!</title>).)+)</title>)", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+                            XMLString = Regex.Replace(XMLString, "(<part([^><]+)?>)((?:(?:(?!</title>).)+)</title>)", AddressOf ChapterProHC, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        Else
+                            XMLString = Regex.Replace(XMLString, "(<chapter([^><]+)?>)((?:(?:(?!</title>).)+)</title>)", AddressOf ChapterProHC, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        End If
+                        iSec = +1
+                        XMLString = Regex.Replace(XMLString, "(<section([^><]+)?)>", AddressOf SectionPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        XMLString = Regex.Replace(XMLString, "(<footnote([^><]+)?)>", AddressOf FootnotePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        'iVal = 0
+                        XMLString = Regex.Replace(XMLString, "(<title([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        'If Regex.IsMatch(XMLString, "<chapter[^><]+>", RegexOptions.IgnoreCase) Then
+                        '    iChFnCnt += 1
+                        '    XMLString = Regex.Replace(XMLString, "(<fn id="")fn(\d+"">)", "$1ch" & iChFnCnt & "-fn$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        'End If
+                        Dim mt1 As Match = Regex.Match(XMLString, "<copyright([^></]+)?>((?:(?!</copyright>).)+)</copyright>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        If mt1.Success Then
+                            Dim smtchcol1 As MatchCollection = Regex.Matches(XMLString, "<legalnotice([^></]+)?>((?:(?!</legalnotice>).)+)</legalnotice>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                            For Each mc As Match In smtchcol1
+                                XMLString = Regex.Replace(XMLString, mt1.Value.ToString, "", RegexOptions.Singleline)
+                                XMLString = Regex.Replace(XMLString, mc.Value.ToString, mt1.Value.ToString & mc.Value.ToString, RegexOptions.Singleline)
+                                Exit For
+                            Next
+                        End If
+                        XMLString = Regex.Replace(XMLString, "((<biblioid class=""isbn""[^><]+>((?:(?!</biblioid>).)+)</biblioid>)+)+", "<biblioset role=""isbns"" xml:id=""bs-000001"">" & "$1" & "</biblioset>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+                        Try
+                            XMLString = ChapterCleanup(XMLString)
+                        Catch ex As Exception
+                            GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                        End Try
+
+                        Dim mt As Match = Regex.Match(XMLString, "<book([^><]+)?>((?:(?!</book>).)+)</book>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                        If mt.Success Then sXMLTxt = sXMLTxt & mt.Groups(2).Value.ToString.Trim & Environment.NewLine
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                    End Try
+                    'XMLWrite.WriteLine(mt.Groups(2).Value.ToString.Trim)
+                Next
+                ' Footnote replacement
+                ''Try
+                ''    Dim mtch As MatchCollection = Regex.Matches(sXMLTxt, "<footnote[^><]+><para([^><]+)?>((?:(?!</footnote>).)+)</footnote>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                ''    Dim FootList As List(Of String) = mtch.Cast(Of Match)().Select(Function(m) m.Value).ToList
+                ''    mtch = Regex.Matches(sXMLTxt, "<footnote[^><]+><superscript>((?:(?!</footnote>).)+)</footnote>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                ''    Dim in1 As Integer = 0
+                ''    For Each mc As Match In mtch
+                ''        sXMLTxt = Regex.Replace(sXMLTxt, mc.Value.ToString, FootList(in1).ToString, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                ''        in1 = in1 + 1
+                ''    Next
+                ''    sXMLTxt = Regex.Replace(sXMLTxt, "(<footnote[^><]+><para([^><]+)?>)(( |\t)+)?(\d+)", AddressOf FootntSeqPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                ''Catch ex As Exception
+
+                ''End Try
+
+                sXMLTxt = Regex.Replace(sXMLTxt, "<para>(( )+)?", "<para>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+                sXMLTxt = BibliographyCleanUp(sXMLTxt)
+
+                sXMLTxt = UpdatePro(sXMLTxt)
+
+                sXMLTxt = Regex.Replace(sXMLTxt, "([^ ])xml:id=", "$1 xml:id=", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "<caption([^><]+)?>(((?!</caption>).)+)</caption>", AddressOf FigureCaptionParaPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "<footnote([^><]+)?>(((?!</footnote>).)+)</footnote>", AddressOf FigureCaptionParaPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "<endnote([^><]+)?>(((?!</endnote>).)+)</endnote>", AddressOf FigureCaptionParaPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                'sXMLTxt = Regex.Replace(sXMLTxt, "(<link role=""figure""[^><]+>(?:(?:(?!</link>).)+)</link><figure([^><]+)?>(?:(?:(?!</figure>).)+)</figure>)(?:(?:(?!</para>).)+)</para>", AddressOf FigurePlacementPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                'sXMLTxt = Regex.Replace(sXMLTxt, "(<link role=""table""[^><]+>(?:(?:(?!</link>).)+)</link><table([^><]+)?>(?:(?:(?!</table>).)+)</table>)(?:(?:(?!</para>).)+)</para>", AddressOf FigurePlacementPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "(<figure([^><]+)?>(?:(?:(?!</figure>).)+)</figure>)((?:(?!</para>).)+)?</para>", AddressOf FigurePlacementPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "(<table([^><]+)?>(?:(?:(?!</table>).)+)</table>)((?:(?!</para>).)+)?</para>", AddressOf FigurePlacementPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                sXMLTxt = Regex.Replace(sXMLTxt, "</1para>", "</para>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+                XMLWrite.WriteLine(sXMLTxt.ToString.Replace("&", "&amp;"))
+                XMLWrite.WriteLine("</book>")
+            End Using
+        End If
+        If Not CheckValidXML(Path.Combine(sXMLFilePath, sXMLFileName)) Then
+            Return False
+        End If
+        File.Copy(Path.Combine(sXMLFilePath, sXMLFileName), Path.Combine(sXMLFilePath, sXMLFileName.Replace(".xml", "_xsl.xml")), True)
+        Thread.Sleep(500)
+        CallingXSLPro(Path.Combine(sXMLFilePath, sXMLFileName))
+        ' After xsl execution these changes has to be taken care
+        ' ------------
+        sXMLTxt = File.ReadAllText(Path.Combine(sXMLFilePath, sXMLFileName.Replace(".xml", "_xsl.xml")))
+
+
+
+        sXMLTxt = sXMLTxt.Replace("&amp;", "&")
+        sXMLTxt = Regex.Replace(sXMLTxt, "(( )?xmlns=""http://docbook.org/ns/docbook""|( )?xmlns="""")", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        ' XSL removed some text so here again the ide generation and all calling
+
+        ' Some hardcode text given by jaffar
+        ' Removing toc content 
+        sXMLTxt = Regex.Replace(sXMLTxt, "xmlns:fo=""http://www.w3.org/1999/XSL/Format"" xmlns:xlink=""http://www.w3.org/1999/xlink"" xmlns:msxsl=""urn:schemas-microsoft-com:xslt"" xmlns:d=""http://docbook.org/ns/docbook"" xmlns:aid=""http://ns.adobe.com/AdobeInDesign/4.0/"" xmlns:aid5=""http://ns.adobe.com/AdobeInDesign/5.0/"" xmlns:code=""urn:schemas-test-code""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<toc([^><]+)?>((?:(?!</toc>).)+)</toc>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, " xml:id=""""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<a id=""page_([^""></]+)""/>", "<?page value=""$1""?>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        ' Text insertion between last legalnotice and colophon ' 18-05-2020
+        'sXMLTxt = Regex.Replace(sXMLTxt, "</legalnotice>((?:(?!<legalnotice([^><]+)?>).)+)(</colophon([^><]+)?>)", AddressOf HardCorePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline Or RegexOptions.RightToLeft)
+        'Dim smtchcol As MatchCollection = Regex.Matches(sXMLTxt, "<chapter([^></]+)?>((?:(?!</chapter>).)+)</chapter>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'For Each mc As Match In smtchcol
+        '    sXMLTxt = sXMLTxt.Replace(mc.Value.ToString, "</part>" & mc.Value.ToString)
+        '    Exit For
+        'Next
+
+        sXMLTxt = UpdatePro(sXMLTxt)
+        iChap = 50
+        sXMLTxt = Regex.Replace(sXMLTxt, "(<footnote[^><]+><para[^><]+>)\d+( ?\t?)+", "$1", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<info>", AddressOf ChapInfoPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "(<chapter([^><]+)?>)((?:(?:(?!</info>).)+)</info>)", AddressOf ChapterPro1, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<biblioid([^><]+)?>((?:(?!</biblioid>).)+)</biblioid>", AddressOf BiblioIdPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "(  )+", " ")
+        sXMLTxt = Regex.Replace(sXMLTxt, "<book [^><]+>", sBookInfo.ToString, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        'sXMLTxt = Regex.Replace(sXMLTxt, "([^""])((http:| www\.| mailto:)([^ ><]+))", "$1<link xlink:href=""$2""><uri>$2</uri></link>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        sXMLTxt = Regex.Replace(sXMLTxt, "(<uri>)?((http:|https:|www\.| mailto:)([^ ><]+))</uri>", "<link xlink:href=""$2""><uri>$2</uri></link>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        sXMLTxt = Regex.Replace(sXMLTxt, "(<link[^><]*>)(<link[^><]*>)", "$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Replace("</link></link>", "</link>")
+
+        sXMLTxt = Regex.Replace(sXMLTxt, "<chapter[\s]*/>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        sXMLTxt = Regex.Replace(sXMLTxt, "(<bibliomixed[^><]*>)(((?!</bibliomixed>).)+)(</bibliomixed>)", AddressOf BiblioGraphyClean, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        sXMLTxt = Regex.Replace(sXMLTxt, "<emphasis>(&#x201(9|8);)</emphasis>", "$1", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "([^ ])xml:id=", "$1 xml:id=", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "</blockquote><blockquote[^><]+>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<section([^><]+)?>((?:(?!</section>).)+)</section>", AddressOf SectionNoPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<biblioset role=""publisher"">((?:(?!</biblioset>).)+)</biblioset>", AddressOf Biboloset, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        XMLString = Regex.Replace(XMLString, "5.0b-" & sISBN & "enfullText", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLTxt = Regex.Replace(sXMLTxt, "<book( )?>", "<book xmlns=""http://docbook.org/ns/docbook"" version=""5.0"" xml:id=""b-" & sISBN.ToString & """ xmlns:xlink=""http://www.w3.org/1999/xlink"" xml:lang=""en"" role=""fullText"">", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'sXMLTxt = Regex.Replace(sXMLTxt, "(<footnote([^><]+)?)>", AddressOf FootnotePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        File.WriteAllText(Path.Combine(sXMLFilePath, sXMLFileName.Replace(".xml", "_xsl.xml")), sXMLTxt)
+        If (File.Exists(Path.Combine(sXMLFilePath, sXMLFileName))) Then
+            File.Delete(Path.Combine(sXMLFilePath, sXMLFileName))
+        End If
+        File.Move(Path.Combine(sXMLFilePath, sXMLFileName.Replace(".xml", "_xsl.xml")), Path.Combine(sXMLFilePath, sXMLFileName))
+        GBL.DeantaBallon("Merge and cleanup has been completed. Please check the xml file.", MessageType.MSGERROR)
+        Return True
+    End Function
+
+    Private Function ChapterCleanup(ByVal XmlContents As String) As String
+        xmlDoc = New XmlDocument
+        xmlDoc.PreserveWhitespace = True
+        Dim PgMapList As New List(Of PageMapData)
+        PgMapList.Add(New PageMapData With {.SourceXPath = "//book/a[parent::book]", .DestinationXPath = "//part/info/title"})
+        PgMapList.Add(New PageMapData With {.SourceXPath = "//book/a[parent::book]", .DestinationXPath = "//chapter/info/title"})
+        XmlContents = XmlContents.Replace("&amp;", "&#x0026;").Replace("&", "&amp;")
+        XmlContents = XmlContents.Replace(" xmlns=""http://docbook.org/ns/docbook""", "")
+
+        While XmlContents.Contains(vbCr)
+            XmlContents = XmlContents.Replace(vbCr, " ")
+        End While
+
+        While XmlContents.Contains(vbLf)
+            XmlContents = XmlContents.Replace(vbLf, " ")
+        End While
+
+        While XmlContents.Contains(vbCrLf)
+            XmlContents = XmlContents.Replace(vbCrLf, " ")
+        End While
+
+        While XmlContents.Contains(vbNewLine)
+            XmlContents = XmlContents.Replace(vbNewLine, " ")
+        End While
+
+        While XmlContents.Contains("  ")
+            XmlContents = XmlContents.Replace("  ", " ")
+        End While
+
+        Try
+            xmlDoc.LoadXml(XmlContents)
+        Catch ex As Exception
+            GBL.DeantaBallon(ex.Message & "Chapter cleanup", MessageType.MSGERROR)
+            Return XmlContents
+        End Try
+
+        Dim PageTagList As XmlNodeList = xmlDoc.SelectNodes("//a[@id]")
+        For p As Int16 = 0 To PgMapList.Count - 1
+            Dim SourcePageNodes As XmlNodeList = xmlDoc.SelectNodes(PgMapList(p).SourceXPath)
+            Dim DestNode As XmlNode = xmlDoc.SelectSingleNode(PgMapList(p).DestinationXPath)
+            If (DestNode Is Nothing) Then
+                Continue For
+            End If
+            If ((SourcePageNodes Is Nothing) OrElse (SourcePageNodes.Count = 0)) Then
+                Continue For
+            End If
+            For s As Int16 = 0 To SourcePageNodes.Count - 1
+                DestNode.PrependChild(SourcePageNodes(s))
+            Next
+        Next
+        Dim StartPage As String = String.Empty
+        Dim EndPage As String = String.Empty
+        Dim PageNumNode As XmlNode = xmlDoc.SelectSingleNode("//info/pagenums")
+        Dim PageList As XmlNodeList = xmlDoc.SelectNodes("//a[@id]")
+        If ((PageNumNode IsNot Nothing) AndAlso (PageList IsNot Nothing) AndAlso (PageList.Count > 0)) Then
+            Try
+                If (PageList.Count > 1) Then
+                    StartPage = PageList(0).Attributes("id").Value.Replace("page_", "")
+                    Try
+                        EndPage = (From n In PageList Select Convert.ToInt32(n.Attributes("id").Value.Replace("page_", ""))).Max
+                    Catch ex As Exception
+                        EndPage = PageList(PageList.Count - 1).Attributes("id").Value.Replace("page_", "")
+                    End Try
+                    PageNumNode.InnerText = $"{StartPage}&#x2013;{EndPage}"
+                ElseIf (PageList.Count = 1) Then
+                    StartPage = PageList(0).Attributes("id").Value.Replace("page_", "")
+                    PageNumNode.InnerText = StartPage
+                End If
+            Catch ex As Exception
+                GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+            End Try
+        End If
+
+        Dim PartLabels As XmlNodeList = xmlDoc.SelectNodes("//part/info/label")
+        If ((PartLabels IsNot Nothing) AndAlso (PartLabels.Count > 0)) Then
+            For p As Int32 = 0 To PartLabels.Count - 1
+                If (PartLabels(p).ParentNode IsNot Nothing) Then
+                    PartLabels(p).ParentNode.RemoveChild(PartLabels(p))
+                End If
+            Next
+        End If
+
+        Dim PartChapters As XmlNodeList = xmlDoc.SelectNodes("//part/chapter")
+        If ((PartChapters IsNot Nothing) AndAlso (PartChapters.Count > 0)) Then
+            For c As Int32 = 0 To PartChapters.Count - 1
+                If (PartChapters(c).ParentNode IsNot Nothing) Then
+                    PartChapters(c).ParentNode.InnerXml = Regex.Replace(PartChapters(c).ParentNode.InnerXml, "(<chapter)([^>]*>)", "<partintro$2", RegexOptions.Singleline Or RegexOptions.IgnoreCase).Replace("</chapter>", "</partintro>")
+                End If
+            Next
+        End If
+
+
+        XmlContents = xmlDoc.OuterXml.Replace("&amp;", "&")
+        Return XmlContents
+    End Function
+
+    Private Function ChapterNameSpace(ByVal mt As Match) As String
+        Dim sResult As String = mt.Value
+        sResult = sResult.Replace(" xmlns:xlink=""http://www.w3.org/1999/xlink""", "").Replace(" xmlns:xsi=""http://www.w3.org/2001/XMLSchema-instance""", "")
+        Return sResult
+    End Function
+
+    Private Function BibliographyCleanUp(ByVal XmlContent As String) As String
+        xmlDoc = New XmlDocument
+        Dim NameSpaceManager As New System.Xml.XmlNamespaceManager(xmlDoc.NameTable)
+        NameSpaceManager.AddNamespace("xsi", "http://www.w3.org/2001/XMLSchema-instance")
+        NameSpaceManager.AddNamespace("aid5", "http://ns.adobe.com/AdobeInDesign/5.0/")
+        NameSpaceManager.AddNamespace("aid", "http://ns.adobe.com/AdobeInDesign/4.0/")
+        NameSpaceManager.AddNamespace("xlink", "http://www.w3.org/1999/xlink/")
+        NameSpaceManager.AddNamespace("xml", "http://www.w3.org/XML/1998/namespace")
+        xmlDoc.XmlResolver = Nothing
+        xmlDoc.PreserveWhitespace = True
+
+        XmlContent = Regex.Replace(XmlContent, "<bibliomset[^><]*>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Replace("</bibliomset>", "")
+        XmlContent = Regex.Replace(XmlContent, "</line>[\s]+<speaker>", "</line><speaker>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Try
+            xmlDoc.LoadXml("<mfep xmlns:xlink=""http://www.w3.org/1999/xlink/"">" & XmlContent.Replace("&", "&amp;") & "</mfep>")
+        Catch ex As Exception
+            GBL.DeantaBallon(ex.Message & "Bibligraphy cleanup", MessageType.MSGERROR)
+            Return XmlContent
+        End Try
+
+        Dim BibliomixedList As XmlNodeList = xmlDoc.SelectNodes("//bibliomixed")
+        If ((BibliomixedList IsNot Nothing) AndAlso (BibliomixedList.Count > 0)) Then
+            For bb As Integer = 0 To BibliomixedList.Count - 1
+                Try
+                    If (String.IsNullOrEmpty(BibliomixedList(bb).InnerText)) Then
+                        BibliomixedList(bb).ParentNode.RemoveChild(BibliomixedList(bb))
+                    End If
+
+                    BibliomixedList(bb).InnerXml = BibliomixedList(bb).InnerXml.Replace("<orgname><orgname>", "<orgname>").Replace("<authorgroup><author>", "<author>").Replace("</orgname></orgname>", "</orgname>").Replace("</author></authorgroup>", "</author>")
+
+                    If (BibliomixedList(bb).InnerXml.Contains("<volumenum>") Or BibliomixedList(bb).InnerXml.Contains("<issuenum>")) Then
+                        Dim titleList As XmlNodeList = BibliomixedList(bb).SelectNodes(".//title")
+                        If ((titleList IsNot Nothing) AndAlso (titleList.Count > 0) AndAlso (titleList.Count = 2)) Then
+                            BibliomixedList(bb).InnerXml = Regex.Replace(BibliomixedList(bb).InnerXml, "<bibliomset[^>]*>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Replace("</bibliomset>", "")
+                            BibliomixedList(bb).InnerXml = "<bibliomset relation=""article"">" & BibliomixedList(bb).InnerXml.Replace(titleList(0).OuterXml, titleList(0).OuterXml & "</bibliomset><bibliomset relation=""journal"">") & "</bibliomset>"
+                        End If
+                        Try
+                            BibliomixedList(bb).Attributes("role").Value = "article"
+                        Catch ex As Exception
+                            Continue For
+                        End Try
+                    ElseIf (BibliomixedList(bb).InnerXml.Contains("<publishername>") AndAlso BibliomixedList(bb).InnerXml.Contains("<address>")) Then
+                        Dim titleList As XmlNodeList = BibliomixedList(bb).SelectNodes(".//title")
+                        If ((titleList IsNot Nothing) AndAlso (titleList.Count > 0) AndAlso (titleList.Count = 2)) Then
+                            BibliomixedList(bb).InnerXml = Regex.Replace(BibliomixedList(bb).InnerXml, "<bibliomset[^>]*>", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Replace("</bibliomset>", "")
+                            BibliomixedList(bb).InnerXml = "<bibliomset relation=""part"">" & BibliomixedList(bb).InnerXml.Replace(titleList(0).OuterXml, titleList(0).OuterXml & "</bibliomset><bibliomset relation=""book"">") & "</bibliomset>"
+                            Try
+                                BibliomixedList(bb).Attributes("role").Value = "contribution"
+                            Catch ex As Exception
+                                Continue For
+                            End Try
+                        ElseIf ((titleList IsNot Nothing) AndAlso (titleList.Count > 0) AndAlso (titleList.Count = 1)) Then
+                            Try
+                                BibliomixedList(bb).Attributes("role").Value = "monograph"
+                            Catch ex As Exception
+                                Continue For
+                            End Try
+                        End If
+                    End If
+                Catch ex As Exception
+                    GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                    Continue For
+                End Try
+            Next
+        End If
+
+        Dim DialogueList As XmlNodeList = xmlDoc.SelectNodes("//dialogue/figure")
+        If ((DialogueList IsNot Nothing) AndAlso (DialogueList.Count > 0)) Then
+            While (((DialogueList IsNot Nothing) AndAlso (DialogueList.Count > 0)))
+                Try
+                    If ((DialogueList(0).PreviousSibling IsNot Nothing) AndAlso (String.Compare(DialogueList(0).PreviousSibling.Name, "line", True) = 0)) Then
+                        If (DialogueList(0).ParentNode IsNot Nothing) Then
+                            DialogueList(0).PreviousSibling.PrependChild(DialogueList(0))
+                        End If
+                    End If
+                Catch ex As Exception
+                    GBL.DeantaBallon(ex.Message, MessageType.MSGINFO)
+                End Try
+                DialogueList = xmlDoc.SelectNodes("//dialogue/figure")
+            End While
+        End If
+
+        Dim SpeakerList As XmlNodeList = xmlDoc.SelectNodes("//dialogue")
+        For dt As Integer = 0 To SpeakerList.Count - 1
+            Try
+                If (SpeakerList(dt).InnerXml.StartsWith("<speaker")) Then
+                    SpeakerList(dt).InnerXml = Regex.Replace(SpeakerList(dt).InnerXml, "(</line><a[^>]*>)(<speaker>)", "$1</linegroup>$2").Replace("</line><speaker>", "</line></linegroup><speaker>").Replace("<speaker>", "<linegroup><speaker>") & "</linegroup>"
+                    SpeakerList(dt).InnerXml = Regex.Replace(SpeakerList(dt).InnerXml, "(<speaker[^>]*>)", "$1<person><personname>", RegexOptions.Singleline Or RegexOptions.IgnoreCase).Replace("</speaker>", "</personname></person></speaker>")
+                ElseIf (SpeakerList(dt).InnerXml.StartsWith("<line")) Then
+                    SpeakerList(dt).InnerXml = "<linegroup>" & Regex.Replace(SpeakerList(dt).InnerXml, "(</line><a[^>]*>)(<speaker>)", "$1</linegroup>$2").Replace("</line><speaker>", "</line></linegroup><speaker>").Replace("<speaker>", "<linegroup><speaker>") & "</linegroup>"
+                    SpeakerList(dt).InnerXml = Regex.Replace(SpeakerList(dt).InnerXml, "(<speaker[^>]*>)", "$1<person><personname>", RegexOptions.Singleline Or RegexOptions.IgnoreCase).Replace("</speaker>", "</personname></person></speaker>")
+                End If
+            Catch ex As Exception
+                GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                Continue For
+            End Try
+        Next
+
+        Dim LinkLst As XmlNodeList = xmlDoc.SelectNodes("//text()")
+        Dim MaxList As Integer = 0
+        Dim UrlXml As String = String.Empty
+        Dim OrgUrlXML As String = String.Empty
+        MaxList = LinkLst.Count - 1
+        If ((LinkLst IsNot Nothing) AndAlso (LinkLst.Count > 0)) Then
+            For k As Integer = 0 To LinkLst.Count - 1
+                Try
+                    If (String.IsNullOrEmpty(LinkLst(k).InnerText.Trim())) Then
+                        Continue For
+                    End If
+                    UrlXml = LinkLst(k).InnerText
+                    OrgUrlXML = UrlXml
+                    Dim UrlMatchs As MatchCollection = Regex.Matches(UrlXml, "((http:|https:|www\\.)([^ ><)]+))", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                    If ((UrlMatchs IsNot Nothing) AndAlso (UrlMatchs.Count > 0)) Then
+                        For l As Integer = 0 To UrlMatchs.Count - 1
+                            Dim Urltxt As String = UrlMatchs(0).Value
+                            If (Urltxt.EndsWith(".")) Then
+                                Urltxt = Urltxt.TrimEnd(".")
+                                UrlXml = UrlXml.Replace(UrlMatchs(l).Value, String.Format("<link xlink:href=""{0}""><uri>{0}</uri></link>.", Urltxt))
+                            Else
+                                UrlXml = UrlXml.Replace(UrlMatchs(l).Value, String.Format("<link xlink:href=""{0}""><uri>{0}</uri></link>", UrlMatchs(0).Value))
+                            End If
+                        Next
+                        If (LinkLst(k).ParentNode IsNot Nothing) Then
+                            LinkLst(k).ParentNode.InnerXml = LinkLst(k).ParentNode.InnerXml.Replace(OrgUrlXML.Replace("&", "&amp;"), UrlXml.Replace("&", "&amp;"))
+                        End If
+                    End If
+                Catch ex As Exception
+                    GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                End Try
+            Next
+        End If
+
+        'true based on label, false based on ID
+        Try
+            MoveFootnotes(NameSpaceManager, False)
+        Catch ex As Exception
+            GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+        End Try
+
+        Dim NoteChapterNode As XmlNode = xmlDoc.SelectSingleNode("//chapter/title[text()='Notes']")
+        If (NoteChapterNode IsNot Nothing) Then
+            If ((NoteChapterNode.ParentNode IsNot Nothing) AndAlso (NoteChapterNode.ParentNode.ParentNode IsNot Nothing)) Then
+                NoteChapterNode.ParentNode.ParentNode.RemoveChild(NoteChapterNode.ParentNode)
+            End If
+        End If
+
+        XmlContent = XmlContent.Replace("<bibliomset relation=""book""> ", "<bibliomset relation=""book"">")
+        XmlContent = xmlDoc.OuterXml.Replace("&amp;", "&")
+
+        XmlContent = Regex.Replace(XmlContent, "<mfep[^>]*>", "").Replace("</mfep>", "")
+        Return XmlContent
+    End Function
+
+    Private Function MoveFootnotes(ByVal NameSpaceManager As XmlNamespaceManager, ByVal IsBasedOnLabel As Boolean) As Boolean
+        Dim FootnoteList As XmlNodeList = xmlDoc.SelectNodes("//footnote[@linkend]")
+        Dim FootnoteID As String = String.Empty
+        Dim Label As String = String.Empty
+        If ((FootnoteList IsNot Nothing) AndAlso (FootnoteList.Count > 0)) Then
+            For ft As Integer = 0 To FootnoteList.Count - 1
+                Try
+                    Dim FtNode As XmlNode = FootnoteList(ft)
+                    Try
+                        FootnoteID = FtNode.Attributes("linkend").Value
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                        Continue For
+                    End Try
+                    Try
+                        Label = FtNode.Attributes("label").Value
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                        Continue For
+                    End Try
+                    If (String.IsNullOrEmpty(FootnoteID)) Then
+                        GBL.DeantaBallon("xml:id attribute value not found. Please check." & FtNode.OuterXml, MessageType.MSGERROR)
+                        Continue For
+                    End If
+                    Dim SecFtNote As XmlNode = GetFootnoteSection(FootnoteID, NameSpaceManager, Label, IsBasedOnLabel)
+                    If (SecFtNote Is Nothing) Then
+                        GBL.DeantaBallon("linkend id found, but the respective footnote xml:id not found." & FootnoteID, MessageType.MSGERROR)
+                        Continue For
+                    End If
+                    If ((String.IsNullOrEmpty(FtNode.InnerText)) OrElse (String.IsNullOrEmpty(SecFtNote.InnerText))) Then
+                        Try
+                            GBL.DeantaBallon("footntoe removed: " & FtNode.OuterXml, MessageType.MSGERROR)
+                            Try
+                                FtNode.ParentNode.RemoveChild(FtNode)
+                                SecFtNote.ParentNode.RemoveChild(SecFtNote)
+                            Catch ex As Exception
+                                GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                            End Try
+                        Catch ex As Exception
+                            GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                        End Try
+                    End If
+
+                    Try
+                        FtNode.InnerXml = SecFtNote.InnerXml
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                        Continue For
+                    End Try
+                    Try
+                        FtNode.Attributes.Remove(FtNode.Attributes("linkend"))
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                    End Try
+                    Try
+                        Dim xmlIDAttrib As XmlAttribute = xmlDoc.CreateNode(XmlNodeType.Attribute, "xml:id", "xml")
+                        xmlIDAttrib.Value = FootnoteID
+                        FtNode.Attributes.Append(xmlIDAttrib)
+                    Catch ex As Exception
+                        GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                    End Try
+                    SecFtNote.ParentNode.RemoveChild(SecFtNote)
+
+                Catch ex As Exception
+                    GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                    Continue For
+                End Try
+            Next
+        End If
+        Return True
+    End Function
+    Private Function GetFootnoteSection(ByVal FootNoteID As String, ByVal NameSpaceManager As XmlNamespaceManager, ByVal Label As String, ByVal IsBasedOnLabel As Boolean) As XmlNode
+        Dim FtXMLNode As XmlNode = Nothing
+        Dim sFtID As String = String.Empty
+        Dim ParticalID As String = String.Empty
+        Dim footnoteList As XmlNodeList = Nothing
+        If (IsBasedOnLabel) Then
+            Try
+                ParticalID = FootNoteID.Split("_")(0)
+            Catch ex As Exception
+                GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+                Return Nothing
+            End Try
+            footnoteList = xmlDoc.SelectNodes($"//footnote[contains(@xml:id,'{ParticalID}') and @label='{Label}']", NameSpaceManager)
+            If ((footnoteList IsNot Nothing) AndAlso (footnoteList.Count > 0)) Then
+                Return footnoteList(0)
+            End If
+        Else
+            footnoteList = xmlDoc.SelectNodes($"//footnote[@xml:id='{FootNoteID}']", NameSpaceManager)
+            If ((footnoteList IsNot Nothing) AndAlso (footnoteList.Count > 0)) Then
+                Return footnoteList(0)
+            End If
+        End If
+
+        'If ((footnoteList IsNot Nothing) AndAlso (footnoteList.Count > 0)) Then
+        '    For Each FtXMLNode In footnoteList
+        '        Try
+        '            sFtID = FtXMLNode.Attributes("xml:id").Value
+        '        Catch ex As Exception
+        '            GBL.DeantaBallon(ex.Message, MessageType.MSGERROR)
+        '            Continue For
+        '        End Try
+        '        If (String.IsNullOrEmpty(sFtID)) Then
+        '            GBL.DeantaBallon("linkend attribute not found." & FtXMLNode.OuterXml, MessageType.MSGERROR)
+        '            Continue For
+        '        End If
+        '        If (String.Compare(sFtID, FootNoteID, True) = 0) Then
+        '            Return FtXMLNode
+        '        End If
+        '    Next
+        'End If
+        Return Nothing
+    End Function
+
+
+    Private Function FigureCaptionParaPro(m As Match)
+        Dim sResult As String = m.Value.ToString
+        sResult = Regex.Replace(sResult, "</para>", "</1para>", RegexOptions.Singleline Or RegexOptions.IgnoreCase)
+        Return sResult
+    End Function
+
+    Private Function BiblioGraphyClean(m As Match)
+        Dim sResult As String = m.Value
+        sResult = sResult.Replace("<authorgroup>", "").Replace("</authorgroup>", "")
+        Dim biblio As String = m.Groups(1).Value
+        If (biblio.Contains("<bibliomixed role=""contributors""")) Then
+            sResult = sResult.Replace("<bibliomixed role=""contributors""", "<bibliomixed role=""contribution""")
+        End If
+        If (m.Groups(2).Value.Contains("<uri>http")) Then
+            biblio = biblio.Replace("role=""other""", "role=""website""")
+        End If
+        sResult = sResult.Replace(m.Groups(1).Value, biblio)
+        Return sResult
+    End Function
+
+    Private Function FigurePlacementPro(m As Match)
+        Dim sResult As String = m.Value.ToString
+        Dim mtch As MatchCollection
+        If sResult.ToString.Contains("<figure") Then
+            mtch = Regex.Matches(sResult, "<figure([^><]+)?>(?:(?:(?!</figure>).)+)</figure>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        ElseIf sResult.ToString.Contains("<table") Then
+            mtch = Regex.Matches(sResult, "<table([^><]+)?>(?:(?:(?!</table>).)+)</table>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Else
+            Return sResult
+        End If
+        Dim FigureList As List(Of String) = mtch.Cast(Of Match)().Select(Function(m1) m1.Value).ToList
+        For Each m2 As Match In mtch
+            sResult = sResult.Replace(m2.Value.ToString, "")
+        Next
+        For Each lst In FigureList
+            sResult = sResult & lst.ToString
+        Next
+        Return sResult
+    End Function
+
+    Private Function FootntSeqPro(m As Match)
+        Dim sresult As String = m.Value.ToString
+        If Not sresult.ToString.Contains("label=") Then Return sresult
+        sresult = m.Groups(1).Value.ToString
+        sresult = Regex.Replace(sresult, "label=""([^""]+)""", "label=""" & m.Groups(5).Value.ToString & """")
+        Return sresult
+    End Function
+
+    Private Function SectionNoPro(m As Match)
+        Dim sResult As String = m.Value.ToString
+        Dim mt As Match = Regex.Match(sResult, "<title([^><]+)?>(\d+)&#x2002;", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        If Not mt.Success Then Return sResult
+        sResult = Regex.Replace(sResult, "(<title([^><]+)?>)(\d+)&#x2002;", "$1", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sResult = Regex.Replace(sResult, "<section([^><]+)?>", "<section label=""" & mt.Groups(2).Value.ToString & """$1>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Return sResult
+    End Function
+
+    Private Function Biboloset(m As Match)
+        Dim sResult As String = m.Value.ToString
+        Dim sTxt As String = "<edition role=~1~>1</edition>" & Environment.NewLine & "<pubdate role=~published~>2017</pubdate>" & Environment.NewLine &
+                "<biblioset role=~publisher~ xml:id=~ba-0005~>" & Environment.NewLine &
+                "<printhistory xml:id=~ba-FM-0005a~><para xml:id=~pa-FM-0000002~>First published 2017</para></printhistory>" & Environment.NewLine &
+                "<bibliomisc role=~imprint~>Bloomsbury Academic</bibliomisc>" & Environment.NewLine &
+                "<phrase>An imprint of</phrase>" & Environment.NewLine & "<publisher>" & Environment.NewLine &
+                "<publishername>Bloomsbury Publishing Plc</publishername>" & Environment.NewLine & "<address xml:id=~adr-0001~>" & Environment.NewLine &
+                "<street>1385 Broadway</street> <city>New York</city> <state>NY</state> <postcode>10018</postcode> <country>USA</country>" & Environment.NewLine &
+                "</address>" & Environment.NewLine & "<address xml:id=~adr-0002~>" & Environment.NewLine &
+                "<street>50 Bedford Square</street> <city>London</city> <postcode>WC1B 3DP</postcode> <country>UK</country>" & Environment.NewLine &
+                "<phrase><emphasis role=~bold~><link xlink:href=~http://www.bloomsbury.com~><uri>www.bloomsbury.com</uri></link></emphasis></phrase>" & Environment.NewLine &
+                "<phrase><emphasis role=~bold~>BLOOMSBURY and the Diana logo are trademarks of Bloomsbury Publishing Plc</emphasis></phrase>" & Environment.NewLine &
+                "</address>" & Environment.NewLine & "</publisher></biblioset>"
+        sTxt = sTxt.Replace("~", Chr(34))
+        'sResult = sResult.Replace(m.Groups(1).Value.ToString, sTxt) '24-06-2020
+        'Return sResult
+        Return sTxt
+    End Function
+
+    Private Function BiblioIdPro(m As Match)
+        Dim sResult As String = m.Value.ToString
+        Dim sTxt As String = Regex.Replace(m.Groups(2).Value.ToString, "[a-z:]", "", RegexOptions.IgnoreCase).Trim
+        sResult = sResult.Replace(m.Groups(2).Value.ToString, sTxt)
+        Return sResult
+    End Function
+
+    Private Function ChapInfoPro(m As Match)
+        Dim sResult As String = m.Value.ToString
+        iChap = +1
+        sResult = Regex.Replace(sResult, "<info>", "<info xml:id=""ch" & iChap & "-ba-00000" & iChap & """>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Return sResult
+    End Function
+
+    Private Function HardCorePro(m As Match)
+        Dim sTxt As String = "</legalnotice>|<biblioid class=~doi~>10.5040/" & sISBN & "</biblioid>|<biblioid class=~other~ otherclass=~schemaVersion~>1</biblioid>|" &
+            "<biblioid class=~other~ otherclass=~schematronVersion~>4</biblioid>|<abstract role=~blurb~ xml:id=~ba-blurb1~>|<para></para>|</abstract>|"
+        sTxt = sTxt & m.Groups(1).Value.ToString & Environment.NewLine & m.Groups(3).Value.ToString
+        sTxt = sTxt & "<part xml:id=~ba-FM-front~ role=~front~>|<info xml:id=~in-0002~>|<title xml:id=~tt-0002~>Front matter</title>|</info>|" &
+            "<preface role=~prelims~ xml:id=~b-" & sISBN & "-title~>|<info xml:id=~ba-FM-" & sISBN & "-prelim-id~>|<title xml:id=~ba-FM-" & sISBN & "-prelim-id~>Title Pages</title>|" &
+            "<pagenums/>|<mediaobject xml:id=~ba-FM-" & sISBN & "-prelim-id~>|<imageobject xml:id=~ba-FM-" & sISBN & "-prelim-id~>|<imagedata fileref=~pdfs/" & sISBN & ".0001.pdf~ format=~application/pdf~/>|" &
+            "</imageobject>|</mediaobject>|</info>|<remark condition=~hidden~>Note that this is a placeholder for the pdf of the prelims and no full text content is included at this point</remark>|" &
+            "</preface>|<dedication xml:id=~b-" & sISBN & "-dedi~>|<info xml:id=~bo-id~>|<title outputformat=~e-Only~ xml:id=~tt-003~>Dedication</title>|<pagenums/>|" &
+            "<mediaobject xml:id=~ba-000000d4~>|<imageobject xml:id=~ba-000df0005~>|<imagedata fileref=~pdfs/" & sISBN & ".0002.pdf~ format=~application/pdf~/>|" &
+            "</imageobject>|</mediaobject>|</info>|<para></para>|</dedication>|<toc xml:id=~b-" & sISBN & "-toc~>|<info xml:id=~in-0006~>|<title xml:id=~tt-00zsdf06~>" &
+            "<?page value=~vii~?>Contents</title>|<pagenums>vii</pagenums>|<mediaobject xml:id=~ba-FM-toc-001c~>|<imageobject xml:id=~ba-FM-toc-001d~>|" &
+            "<imagedata fileref=~pdfs/9781844864041.0003.pdf~ format=~application/pdf~/>|</imageobject>|</mediaobject>|</info>|</toc>"
+        sTxt = sTxt.Replace("|", Environment.NewLine).Replace("~", Chr(34))
+        'sTxt = sTxt & Environment.NewLine & m.Groups(3).Value.ToString
+        Return sTxt
+    End Function
+
+    Private iVal As Integer = 0
+    ' Updated on Sep 27, 2016 based on Jaffar request
+    Private Function UpdatePro(ByVal sChapterTxt As String) As String
+        '
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<acknowledgements([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<toc([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<cover([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<abstract([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<address([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<bibliodiv([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<bibliolist([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        'sChapterTxt = Regex.Replace(sChapterTxt, "(<bibliomixed([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<bibliography([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<para([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<legalnotice([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        If Not bExecuteOnce Then
+            iVal = 0
+            sChapterTxt = Regex.Replace(sChapterTxt, "(<part([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<partintro([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'iVal = 0
+        'sChapterTxt = Regex.Replace(sChapterTxt, "(<preface([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<poetry([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<blockquote([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<caption([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<line([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<linegroup([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<dialogue([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<speaker([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<itemizedlist([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<listitem([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<orderedlist([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<subtitle([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<personblurb([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<printhistory([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<colophon([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<inlinemediaobject([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<imageobject([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<mediaobject([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<informaltable([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<entry([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        'sChapterTxt = Regex.Replace(sChapterTxt, "(<informalfigure([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<epigraph([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<sidebar([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<keywordset([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<keyword([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<itermset([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<tfoot([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<glossary([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<glosslist([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<glossentry([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<glossterm([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<glossdef([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<index([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal = 0
+        'sChapterTxt = Regex.Replace(sChapterTxt, "(<table([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        iVal = 0
+        sChapterTxt = Regex.Replace(sChapterTxt, "(<chapter([^><]+)?)>", AddressOf ChapterPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        If Not bExecuteOnce Then
+            iVal = 0
+            sChapterTxt = Regex.Replace(sChapterTxt, "<preface([^><]+)?>((?:(?!</preface>).)+)</preface>", AddressOf PrefacePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sChapterTxt = Regex.Replace(sChapterTxt, "(<part ([^><]+)?)>", AddressOf PartPro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Else
+            iVal = 0
+            sChapterTxt = Regex.Replace(sChapterTxt, "(<title([^><]+)?)>", AddressOf IDGen, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        bExecuteOnce = True
+        Return sChapterTxt
+    End Function
+
+    Private Function ChapterProHC(m As Match)
+        Dim IsBiblio As Boolean = False
+        Dim IsIndex As Boolean = False
+        Dim sAuthors As Match = Regex.Match(m.Value.ToString, "<author>(.+)</author>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'If Regex.IsMatch(m.Value.ToString, "<author>(.+)</author>", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+        'End If
+        Dim sResult As String = m.Groups(1).Value.ToString & Environment.NewLine & "<info xml:id=""ch" & iChap & "-ba-00000" & iChap & """>" & Environment.NewLine & m.Groups(3).Value.ToString
+
+        If (sResult.Contains("<section role=""")) Then Return m.Value
+        If (Regex.Match(sResult, "<title[^>]*>Notes</title>", RegexOptions.Singleline Or RegexOptions.IgnoreCase).Success) Then Return m.Value
+
+        Dim sHardcode As String = "|<pagenums></pagenums>|<biblioid class=~doi~>10.5040/" & sISBN & ".000" & iChap & "</biblioid>|<mediaobject xml:id=~ch" & iChap & "-ba-000000" & iChap & "~>|" &
+            "<imageobject xml:id=~ch" & iChap & "-ba-0000005~>|<imagedata fileref=~pdfs/" & sISBN & ".0006.pdf~ format=~application/pdf~></imagedata>|</imageobject>|" &
+            "</mediaobject>|"
+        If sAuthors.Success Then
+            sResult = Regex.Replace(sResult, sAuthors.Value.ToString, "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sHardcode = Regex.Replace(sHardcode, "<pagenums>", "<authorgroup>|" & sAuthors.Value.ToString & "</authorgroup>|<pagenums>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        sHardcode = sHardcode.Replace("~", Chr(34)).Replace("|", "")
+        sResult = sResult & sHardcode
+
+        'If iChap = 1 Then sResult = sResult.Replace("<chapter", "</part><chapter")
+        sResult = Regex.Replace(sResult, "<info([^><]+)?></info>", "", RegexOptions.IgnoreCase)
+        If Not sResult.Contains("</info") Then sResult = sResult & "</info>" & Environment.NewLine
+        If (Regex.IsMatch(sResult, "(<section>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", RegexOptions.IgnoreCase Or RegexOptions.Singleline)) Then
+            sResult = Regex.Replace(sResult, "(<section>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", "$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sResult = sResult & "<section>"
+        End If
+
+        If (Regex.Match(sResult, "(<bibliography>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Success) Then
+            IsBiblio = True
+        End If
+        If (Regex.Match(sResult, "(<index>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Success) Then
+            IsIndex = True
+        End If
+        sResult = Regex.Replace(sResult, "(<bibliography>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", "$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sResult = Regex.Replace(sResult, "(<index>)(<title([^><]+)?>((?:(?!</title>).)+)</title>)", "$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        If (IsBiblio) Then
+            sResult = sResult & "<bibliography>"
+        End If
+        If (IsIndex) Then
+            sResult = sResult & "<index>"
+        End If
+        Return sResult.Replace(vbCrLf, "")
+    End Function
+
+    Private Function ChapterPro1(m As Match)
+        Dim sResult As String = m.Value.ToString
+        If Regex.IsMatch(sResult, "<title([^><]+)?>((?:(?!</title>).)+)</title>", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+            Dim smtch As Match = Regex.Match(sResult, "<title([^><]+)?>((?:(?!</title>).)+)</title>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            If smtch.Value.ToString.ToLower.Contains("introduction") Then
+                sResult = Regex.Replace(sResult, "-chapter\d+", "-intro", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            End If
+        End If
+        Dim mt As Match = Regex.Match(sResult, "<label>((?:(?!</label>).)+)</label>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        If mt.Success Then
+            Dim sLbl As String = mt.Groups(1).Value.ToString
+            sLbl = Regex.Replace(sLbl, "<[^><]+>", "", RegexOptions.IgnoreCase)
+            sResult = Regex.Replace(sResult, "<label>((?:(?!</label>).)+)</label>", "", RegexOptions.IgnoreCase)
+            sResult = Regex.Replace(sResult, "<chapter", "<chapter label=""" & sLbl & """", RegexOptions.IgnoreCase)
+        End If
+        Return sResult
+    End Function
+
+    Private Function PrefacePro(m As Match)
+        Dim sInput As String = m.Value.ToString
+        Dim sResults As String = String.Empty
+        Dim sTxt As String = "<info xml:id=~ba-0000004e~>|<title xml:id=~b-0003g~></title>|<pagenums></pagenums>|<mediaobject xml:id=~ba-0000004f~>|" &
+            "<imageobject xml:id=~ba-0000005f~>|<imagedata fileref=~pdfs/" & sISBN & ".0004.pdf~ format=~application/pdf~/>|</imageobject>|</mediaobject>|</info>"
+        If Not String.IsNullOrEmpty(sInput) Then
+            If Regex.IsMatch(sInput, "<title([^><]+)?>((?:(?!</title>).)+)</title>", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+                Dim smt As Match = Regex.Match(sInput, "<title([^><]+)?>((?:(?!</title>).)+)</title>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                If smt.Groups(2).Value.ToString.ToLower.Contains("contributors") Then
+                    sResults = "<preface xml:id=""b-" & sISBN & "-contributors"">"
+                ElseIf smt.Groups(2).Value.ToString.ToLower.Contains("abbreviation") Then
+                    sResults = "<preface xml:id=""b-" & sISBN & "-abbrev"">"
+                Else
+                    Dim sTit As String = smt.Groups(2).Value.ToString
+                    sTit = Regex.Replace(sTit, "(<superscript>(.+)</superscript>|<(/)?emphasis>)", "", RegexOptions.IgnoreCase)
+                    sResults = "<preface xml:id=""b-" & sISBN & "-" & sTit & Chr(34) & ">"
+                End If
+                Dim sMtch As Match = Regex.Match(sInput, "<title([^><]+)?>((?:(?!</title>).)+)</title>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+                If sMtch.Success Then
+                    Dim sTit As String = sMtch.Groups(2).Value.ToString
+                    sTit = Regex.Replace(sTit, "(<superscript>(.+)</superscript>|<(/)?emphasis>)", "", RegexOptions.IgnoreCase)
+                    sTxt = sTxt.Replace("</title>", sTit & "</title>")
+                End If
+                sResults = sResults & sTxt.Replace("|", Environment.NewLine).Replace("~", Chr(34))
+                'sResults = Regex.Replace(sResults, " xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+                sInput = Regex.Replace(sInput, "<preface([^><]+)?>", "", RegexOptions.IgnoreCase)
+                'sResults = sResults & " xml:id=" & Chr(34) & "b-" & sISBN & "-" & sTag & Chr(34) & ">"
+                sInput = Regex.Replace(sInput, smt.Value.ToString, sResults.ToString, RegexOptions.IgnoreCase)
+            End If
+        End If
+        Return sInput
+    End Function
+
+    Private Function PartPro(m As Match)
+        Dim sInput As String = m.Groups(1).Value.ToString
+        If Not String.IsNullOrEmpty(sInput) Then
+            sInput = Regex.Replace(sInput, " xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sInput = Regex.Replace(sInput, " label=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        iVal = +1
+        Return "<part xml:id=""b-" & sISBN & "-part" & iVal & """>"
+    End Function
+
+    Private Function ChapterPro(m As Match)
+        If m.Value.ToString.Contains("/>") Then Return m.Value.ToString
+        Dim sInput As String = m.Groups(1).Value.ToString
+        If Not String.IsNullOrEmpty(sInput) Then
+            sInput = Regex.Replace(sInput, " xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sInput = Regex.Replace(sInput, " label=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        iVal = iVal + 1
+        Return sInput & " xml:id=""b-" & sISBN & "-chapter" & iVal & """>"
+    End Function
+
+    Private iSec As Integer = 1
+    Private iFootnote As Integer = 1
+
+    Private Function FootnotePro(m As Match)
+        If Not m.Value.ToString.EndsWith(">") Then Return m.Value.ToString
+        Dim sInput As String = m.Groups(1).Value.ToString
+        Dim xmlid As String = String.Empty
+        If (sInput.Contains("linkend=""")) Then Return m.Value
+        xmlid = Regex.Match(sInput, "xml:id=""([^""])+""", RegexOptions.IgnoreCase Or RegexOptions.Singleline).Value
+        xmlid = xmlid.Replace("xml:id=", "").Replace("""", "")
+        Dim smt As Match = Regex.Match(sInput, " label=""(([^""])+)""", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sInput = Regex.Replace(sInput, " label=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sInput = Regex.Replace(sInput, " role=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sInput = Regex.Replace(sInput, "xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Dim sLbl As String = smt.Groups(1).Value.ToString
+        If String.IsNullOrEmpty(sLbl) Then sLbl = iFootnote
+        sInput = sInput & " role=" & Chr(34) & "end-bk-note" & Chr(34) & " label=" & Chr(34) & sLbl & Chr(34) & " xml:id=""" & xmlid & """>"
+        'If String.IsNullOrEmpty(smt.Groups(1).Value.ToString) Then
+        '    sInput = sInput & " role=" & Chr(34) & "end-bk-note" & Chr(34) & " label=" & Chr(34) & sLbl & Chr(34) & " xml:id=""note" & iFootnote & "-ba-" & String.Format("{0:00000}", iFootnote) & """>"
+        'Else
+        '    sInput = sInput & " role=" & Chr(34) & "end-bk-note" & Chr(34) & " label=" & Chr(34) & sLbl & Chr(34) & " xml:id=""note" & iFootnote & "-ba-" & String.Format("{0:00000}", iFootnote) & """>"
+        'End If
+        iFootnote = iFootnote + 1
+        Return sInput
+    End Function
+
+    Private Function SectionPro(m As Match)
+        If Not m.Value.ToString.EndsWith(">") Then Return m.Value.ToString
+        Dim sInput As String = m.Groups(1).Value.ToString
+        sInput = Regex.Replace(sInput, " xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sInput = sInput & " xml:id=" & Chr(34) & "ch-" & iVal & "-sec-" & iSec & Chr(34) & ">"
+        Return sInput
+    End Function
+
+    Private Function IDGen(m As Match)
+        If Not m.Value.ToString.EndsWith(">") OrElse m.Value.ToString.Contains("/>") Then Return m.Value.ToString
+        Dim sResults As String = String.Empty
+        Dim sInput As String = m.Groups(1).Value.ToString
+        sInput = Regex.Replace(sInput, " xml:id=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        iVal += 1
+        iVal = String.Format("{0:0000000}", iVal)
+        Dim sDigit As String = String.Empty
+        If Convert.ToString(iVal).Length = 1 Then
+            sDigit = "000000"
+        ElseIf Convert.ToString(iVal).Length = 2 Then
+            sDigit = "00000"
+        ElseIf Convert.ToString(iVal).Length = 3 Then
+            sDigit = "0000"
+        ElseIf Convert.ToString(iVal).Length = 4 Then
+            sDigit = "000"
+        ElseIf Convert.ToString(iVal).Length = 5 Then
+            sDigit = "00"
+        ElseIf Convert.ToString(iVal).Length = 6 Then
+            sDigit = "0"
+        End If
+        If m.Groups(1).Value.ToString.Contains("<para") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-pa-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<index") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-index" & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<bibliography") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-bib" & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<glossary") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-glossary" & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<dialogue") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-da-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<itemizedlist") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-item-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<listitem") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-list-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<orderedlist") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-order-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<speaker") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-sp-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<glosslist") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-glossl-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<glossentry") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-glosse-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<glossterm") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-glosst-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<glossdef") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-glossd-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<bibliolist") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-bibl-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<partintro") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-ptint-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<keyword") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-key-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<keywordset") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-key-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<itemset") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-itms-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<tfoot") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-tfoot-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<sidebar") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-side-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<line") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-line-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<linegroup") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-lineg-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<epigraph") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-epig-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<inlinemediaobject") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-inlinemedo-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<imageobject") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-imgo-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<mediaobject") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-medo-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<informaltable") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-infotab-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<poetry") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-poet-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<entry") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-entr-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<informalfigure") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-infofig-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<colophon") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-colph-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<bibliodiv") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-bibd-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<address") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-bibd-adr-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<biblioset") Then
+            sInput = Regex.Replace(sInput, " role=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sResults = sInput & " role=""publisher"" xml:id=" & Chr(34) & "bibs-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<bibliomixed") Then
+            'sInput = Regex.Replace(sInput, " role=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sResults = sInput & " xml:id=" & Chr(34) & "bibm-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<abstract") Then
+            sInput = Regex.Replace(sInput, " role=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sResults = sInput & " role=""blurb"" xml:id=" & Chr(34) & "abs-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<legalnotice") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "ba-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<preface") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<acknowledgements") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-ack" & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<toc") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-toc" & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<part") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-part" & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<preface") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "b-" & sISBN & "-preface" & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<blockquote") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "bloq-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<caption") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "capt-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<title") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "ti-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<printhistory") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "prih-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<subtitle") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "suti-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<table") Then
+            sResults = "<table label=""" & iVal & """ frame=""all""" & "xml:id=" & Chr(34) & "tab-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<personblurb") Then
+            sResults = sInput & " xml:id=" & Chr(34) & "pbl-" & sDigit & iVal & Chr(34) & ">"
+        ElseIf m.Groups(1).Value.ToString.Contains("<cover") Then
+            sInput = Regex.Replace(sInput, " role=""([^""])+""", "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sResults = sInput & " role=""series"" xml:id=" & Chr(34) & "co-" & sDigit & iVal & Chr(34) & ">"
+        End If
+
+        Return sResults
+    End Function
+
+    Private Function CleanupPro(sXMLContent As String) As String
+        Dim sTxt2Remove As String = "<book-meta xmlns:fo=~http://www.w3.org/1999/XSL/Format~ xmlns:xlink=~http://www.w3.org/1999/xlink~ xmlns:msxsl=~urn:schemas-microsoft-com:xslt~ " &
+                "xmlns:d=~http://docbook.org/ns/docbook~ xmlns:aid=~http://ns.adobe.com/AdobeInDesign/4.0/~ xmlns:aid5=~http://ns.adobe.com/AdobeInDesign/5.0/~ xmlns:code=~urn:schemas-test-code~>"
+        sXMLContent = Regex.Replace(sXMLContent, sTxt2Remove.ToString.Replace("~", Chr(34).ToString), "<book-meta>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sTxt2Remove = "<!DOCTYPE book SYSTEM ""\\fsdeanta\TechRelease\Accounts\Common\DeantaComposer\Publish\extra\DTD\TFB-DTD\TFB\TFB.dtd"">"
+        If Regex.IsMatch(sXMLContent, "<!DOCTYPE book SYSTEM[^><]+><book>", RegexOptions.IgnoreCase Or RegexOptions.Singleline) Then
+            sXMLContent = Regex.Replace(sXMLContent, "<!DOCTYPE book SYSTEM[^><]+><book>", sTxt2Remove & "<book>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        Else
+            sXMLContent = Regex.Replace(sXMLContent, "<book>", sTxt2Remove & "<book>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        sXMLContent = Regex.Replace(sXMLContent, "<(ext-link|graphic)( [^><]+>)", AddressOf CiteAttribute, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLContent = Regex.Replace(sXMLContent, "(<xref rid=""F[0-9]+"" ref-type="")figure("">)", "$1fig$2", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+
+        sXMLContent = Regex.Replace(sXMLContent, "<fig(?:ure)?([^><]+)?>((?:(?!</fig(ure)?>).)+)</fig(ure)?>", AddressOf FigurePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'sXMLContent = Regex.Replace(sXMLContent, "</book-meta>((?:(?!</body>).)+)</body>", "</book-meta><book-front>$1</book-front></body>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        'sXMLContent = Regex.Replace(sXMLContent, "<fpage>((?:(?!</fpage>).)+)</fpage>", AddressOf PageRangePro, RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        sXMLContent = sXMLContent.Replace(" xmlns:fo=""http://www.w3.org/1999/XSL/Format""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:xlink=""http://www.w3.org/1999/xlink""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:msxsl=""urn:schemas-microsoft-com:xslt""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:d=""http://docbook.org/ns/docbook""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:aid=""http://ns.adobe.com/AdobeInDesign/4.0/""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:aid5=""http://ns.adobe.com/AdobeInDesign/5.0/""", "")
+        sXMLContent = sXMLContent.Replace(" xmlns:code=""urn:schemas-test-code""", "")
+        Return sXMLContent
+    End Function
+
+    Private Function PageRangePro(m As Match)
+        Dim sPage As String = m.Value
+        Dim smtch As Match = Regex.Match(sPage, "(\d+)( ?" & Chr(45).ToString & "|" & ChrW(8212).ToString & "|" & ChrW(8211).ToString & " ?)(\d+)", RegexOptions.IgnoreCase)
+        If smtch.Success Then
+            sPage = "<fpage>" & smtch.Groups(1).Value.ToString & "</fpage>" & smtch.Groups(2).Value.ToString & "<lpage>" & smtch.Groups(2).Value.ToString & "</fpage>"
+        End If
+        Return sPage
+    End Function
+
+    Private Function FigurePro(m As Match)
+        Dim sGraphic As String = m.Value.ToString
+        Dim sMtch As Match = Regex.Match(sGraphic, "<graphic([^><]+)?>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        If sMtch.Success Then
+            sGraphic = Regex.Replace(sGraphic, sMtch.Value, "", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+            sGraphic = Regex.Replace(sGraphic, "</fig>", sMtch.Value & "</fig>", RegexOptions.IgnoreCase Or RegexOptions.Singleline)
+        End If
+        Return sGraphic
+    End Function
+
+    Private Function CiteAttribute(m As Match) As String
+        If Not m.Value.ToString.Contains("http://www.w3.org/1999/xlink") Then
+            Return "<" & m.Groups(1).Value.ToString & " xmlns:xlink=""http://www.w3.org/1999/xlink""" & m.Groups(2).Value.ToString
+        Else
+            Return m.Value
+        End If
+
+    End Function
+
+    ' Execute XSL file code from Muthu
+    Private Sub CallingXSLPro(sXMLFile As String)
+        Dim OutputPath As String = String.Empty
+        Dim BatFileContent As String = String.Empty
+        OutputPath = Path.Combine(Path.GetTempPath, Environment.UserName)
+        If (Directory.Exists(OutputPath)) Then
+            Array.ForEach(Directory.GetFiles(OutputPath), Sub(sfile As String)
+                                                              Try
+                                                                  File.Delete(sfile)
+                                                              Catch ex As Exception
+                                                              End Try
+                                                          End Sub)
+        Else
+            Directory.CreateDirectory(OutputPath)
+        End If
+        If File.Exists(Path.Combine(AppPath, "saxon9.jar")) Then File.Copy(Path.Combine(AppPath, "saxon9.jar"), OutputPath & "\saxon9.jar")
+        If File.Exists(Path.Combine(AppPath, "docschemtron.xsl")) Then File.Copy(Path.Combine(AppPath, "docschemtron.xsl"), OutputPath & "\docschemtron.xsl")
+        'If File.Exists(Path.Combine(AppPath, "TNF-XML.xsl")) Then File.Copy(Path.Combine(AppPath, "TNF-XML.xsl"), OutputPath & "\TNF-XML.xsl") 
+        If File.Exists(sXMLFile) Then File.Copy(sXMLFile, Path.Combine(OutputPath, Path.GetFileName(sXMLFile)))
+
+        BatFileContent = "java -jar """ & Path.GetFileName(Path.Combine(AppPath, "saxon9.jar")) & """ -s:""" & Path.GetFileName(sXMLFile) & """ -xsl:""" &
+                                                           Path.GetFileName(Path.Combine(AppPath, "docschemtron.xsl")) & """ -o:""" & Path.GetFileNameWithoutExtension(sXMLFile) & "_xsl.xml" & """"
+
+        If (Not CreateBatAndRunFile(BatFileContent, OutputPath)) Then
+            'GBL.DeantaBallon("Error occur while create bat file.", MessageType.MSGERROR)
+            GBL.DeantaBallon("Error occur while create bat file.", MessageType.MSGERROR)
+        End If
+        If File.Exists(OutputPath & "\" & Path.GetFileNameWithoutExtension(sXMLFile) & "_xsl.xml") Then
+            File.Copy(OutputPath & "\" & Path.GetFileNameWithoutExtension(sXMLFile) & "_xsl.xml", Path.Combine(Path.GetDirectoryName(sXMLFile), Path.GetFileNameWithoutExtension(sXMLFile) & "_xsl.xml"), True)
+        End If
+    End Sub
+
+    Private Function CheckValidXML(sFilePath As String, Optional sEpub As String = "") As Boolean
+        Try
+            Dim m_xmld As New XmlDocument
+            m_xmld.Load(sFilePath)
+            Return True
+        Catch ex As Exception
+            GBL.DeantaBallon("The XML file is not well formed and hence " & sEpub & " xsl has not been executed. Please check.", MessageType.MSGERROR)
+            Return False
+        End Try
+    End Function
+
+    Private Function CreateBatAndRunFile(BatFileContent As String, OutputPath As String) As Boolean
+        Try
+            If (File.Exists(Path.Combine(OutputPath, "run.bat"))) Then File.Delete(Path.Combine(OutputPath, "run.bat"))
+            File.WriteAllText(Path.Combine(OutputPath, "run.bat"), BatFileContent)
+            While (File.Exists(Path.Combine(OutputPath, "run.bat")))
+                Exit While
+            End While
+            Dim SaxjanProcessInfo As New ProcessStartInfo(Path.Combine(OutputPath, "run.bat"))
+            SaxjanProcessInfo.WorkingDirectory = OutputPath
+            SaxjanProcessInfo.RedirectStandardError = True
+            SaxjanProcessInfo.RedirectStandardOutput = True
+            SaxjanProcessInfo.CreateNoWindow = True
+            SaxjanProcessInfo.WindowStyle = ProcessWindowStyle.Hidden
+            SaxjanProcessInfo.UseShellExecute = False
+            Dim SaxjanProcess As Process = Process.Start(SaxjanProcessInfo)
+            SaxjanProcess.WaitForExit()
+            'Threading.Thread.Sleep(2000)
+            Return True
+        Catch ex As Exception
+            Return False
+        End Try
+    End Function
+    ' Return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "extra")
+
+
+
+End Class
+
+
+Public Class PageMapData
+    Public Property SourceXPath As String = String.Empty
+    Public Property DestinationXPath As String = String.Empty
+End Class
